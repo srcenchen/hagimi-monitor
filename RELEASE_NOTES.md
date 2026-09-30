@@ -9,6 +9,8 @@
 - 面板收起且关闭数据统计时，后台只采集状态栏实际要用的模块。
 - 收紧状态栏图标左右留白。
 
+个人构建未使用苹果开发者证书。下载 zip 后解压，在终端执行 `xattr -cr HagimiMonitorDirect.app`，再打开。若系统仍拦截，对应用右键选「打开」。
+
 ### English
 
 #### Improvements

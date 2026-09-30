@@ -16,6 +16,18 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # 标签以 -san 结尾时不导入 Developer ID、不公证。产物用本机临时签名，
+      # 只给自己用：下载后去掉隔离属性即可打开。正式版本标签保持原发布路径。
+      - name: Decide signing mode
+        run: |
+          if [[ "$GITHUB_REF_NAME" =~ -san$ ]]; then
+            echo "PERSONAL=1" >> "$GITHUB_ENV"
+            echo "Personal ad-hoc build for $GITHUB_REF_NAME"
+          else
+            echo "PERSONAL=0" >> "$GITHUB_ENV"
+            echo "Developer ID release for $GITHUB_REF_NAME"
+          fi
+
       - name: Select Xcode
         run: |
           if [ -d "/Applications/Xcode_27.0.app" ]; then
@@ -26,6 +38,7 @@ jobs:
           xcodebuild -version
 
       - name: Import signing certificate
+        if: env.PERSONAL == '0'
         env:
           MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
           MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
@@ -54,6 +67,7 @@ jobs:
           rm -f "$RUNNER_TEMP/cert.p12"
 
       - name: Build & sign (Developer ID)
+        if: env.PERSONAL == '0'
         run: |
           # Sparkle 以 CFBundleVersion（而非 MARKETING_VERSION）判断是否有新版本。
           # 使用 workflow 的单调递增 run number，使归档包和随后生成的 appcast 保持一致。
@@ -78,7 +92,32 @@ jobs:
             exit 1
           fi
 
+      - name: Build (ad-hoc, personal)
+        if: env.PERSONAL == '1'
+        run: |
+          BUILD_NUMBER="$GITHUB_RUN_NUMBER"
+          xcodebuild -project hagimi-monitor.xcodeproj \
+            -scheme HagimiMonitorDirect \
+            -configuration Release \
+            -arch arm64 \
+            -archivePath build/HagimiMonitor.xcarchive \
+            CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+            CODE_SIGN_STYLE=Manual \
+            "CODE_SIGN_IDENTITY=-" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            DEVELOPMENT_TEAM="" \
+            ENABLE_HARDENED_RUNTIME=NO \
+            archive
+
+          APP_PATH="build/HagimiMonitor.xcarchive/Products/Applications/HagimiMonitorDirect.app"
+          # 归档时关掉签名，这里再做一次临时签名，让系统允许本地启动。
+          # 没有开发者证书，也不能通过 Gatekeeper 的公证检查。
+          codesign --force --deep --sign - "$APP_PATH"
+          codesign --verify --verbose=2 "$APP_PATH"
+
       - name: Re-sign Sparkle nested components
+        if: env.PERSONAL == '0'
         run: |
           # Sparkle 的二进制 XCFramework 内含 ad-hoc 签名的嵌套可执行文件。
           # Xcode 仅重签 framework 根目录，公证会拒绝残留的 ad-hoc 签名；必须由叶到根重签。
@@ -118,6 +157,7 @@ jobs:
           done
 
       - name: Notarize .app
+        if: env.PERSONAL == '0'
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
@@ -154,6 +194,7 @@ jobs:
           xcrun stapler staple "$APP_PATH"
 
       - name: Package .dmg
+        if: env.PERSONAL == '0'
         run: |
           APP_PATH="build/HagimiMonitor.xcarchive/Products/Applications/HagimiMonitorDirect.app"
           mkdir -p dmg-temp
@@ -165,6 +206,7 @@ jobs:
             build/HagimiMonitor.dmg
 
       - name: Notarize .dmg
+        if: env.PERSONAL == '0'
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
@@ -177,7 +219,18 @@ jobs:
 
           xcrun stapler staple build/HagimiMonitor.dmg
 
+      - name: Package personal zip
+        if: env.PERSONAL == '1'
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-san$ ]] || { echo "非法个人构建标签: $RELEASE_TAG"; exit 1; }
+          APP_PATH="build/HagimiMonitor.xcarchive/Products/Applications/HagimiMonitorDirect.app"
+          mkdir -p build/appcast
+          ditto -c -k --keepParent "$APP_PATH" "build/appcast/HagimiMonitor-${RELEASE_TAG}.zip"
+
       - name: Package Sparkle update ZIP
+        if: env.PERSONAL == '0'
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
@@ -191,6 +244,7 @@ jobs:
           ditto -c -k --keepParent "$APP_PATH" "build/appcast/HagimiMonitor-${RELEASE_TAG}.zip"
 
       - name: Sign update & generate appcast
+        if: env.PERSONAL == '0'
         env:
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
           RELEASE_TAG: ${{ github.ref_name }}
@@ -245,12 +299,24 @@ jobs:
       # 第三方 action 固定到 commit SHA:可变 tag 被劫持时能以 write 权限
       # 偷取 APPLE_ID/Sparkle key 等敏感 env 或篡改 Release 产物。
       - name: Create Release & Upload
+        if: env.PERSONAL == '0'
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: |
             build/HagimiMonitor.dmg
             build/appcast/HagimiMonitor-${{ github.ref_name }}.zip
           body_path: RELEASE_NOTES.md
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create personal Release
+        if: env.PERSONAL == '1'
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          files: build/appcast/HagimiMonitor-${{ github.ref_name }}.zip
+          body_path: RELEASE_NOTES.md
+          prerelease: true
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -262,6 +328,7 @@ jobs:
         run: security delete-keychain "$RUNNER_TEMP/app-signing.keychain-db" || true
 
       - name: Deploy appcast to GitHub Pages
+        if: env.PERSONAL == '0'
         uses: peaceiris/actions-gh-pages@84c30a85c19949d7eee79c4ff27748b70285e453 # v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
