@@ -511,8 +511,8 @@ private struct MenuBarDisplaySettingsSection: View {
                 loadLevel: store.haloRingLoadLevel
             ))
             .resizable()
-            // 与菜单栏里的实际图标同尺寸(18pt 画布)。
-            .frame(width: 18, height: 18)
+            // 与菜单栏里的实际图标同尺寸(16pt 画布)。
+            .frame(width: 16, height: 16)
         } else {
             MenuBarMetricLabel(
                 items: store.previewMenuBarMetricItems(),

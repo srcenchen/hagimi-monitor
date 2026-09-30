@@ -52,22 +52,22 @@ struct MenuBarMetricLabel: View {
     private var horizontalBody: some View {
         let layout = MenuBarMetricWidthEngine.horizontalLayout(for: items, layout: layoutStyle)
         return HStack(spacing: layout.gap) {
-            ForEach(items) { item in
-                horizontalCell(for: item)
+            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                horizontalCell(for: item, flushTrailing: index == items.count - 1)
             }
         }
         .font(Font(MenuBarMetricWidthEngine.horizontalValueFont))
         .lineLimit(1)
         .allowsTightening(false)
         .fixedSize()
-        .frame(width: layout.totalWidth, alignment: .leading)
     }
 
-    /// 紧凑(compact):各指标双层列宽恒定,整体宽度天然稳定,字体同为 rounded。
+    /// 紧凑(compact):列宽仍按最大可能值预留，格与格之间的间距不变。
+    /// 最左列丢掉外侧半格空白、最右列丢掉外侧半格空白，边距只留系统那一圈。
     private var compactBody: some View {
         HStack(spacing: interCellSpacing) {
-            ForEach(items) { item in
-                compactCell(for: item)
+            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                compactCell(for: item, edge: compactEdge(at: index))
             }
         }
         .lineLimit(1)
@@ -75,15 +75,30 @@ struct MenuBarMetricLabel: View {
         .fixedSize()
     }
 
+    private enum CompactEdge {
+        case only, leading, trailing, middle
+    }
+
+    private func compactEdge(at index: Int) -> CompactEdge {
+        if items.count <= 1 { return .only }
+        if index == 0 { return .leading }
+        if index == items.count - 1 { return .trailing }
+        return .middle
+    }
+
     /// 横排单格:按「常用宽度」划定最小区域,前缀(SF 图标 / CPU / ↑↓ 等)+ 数值紧贴成对。
     /// 常用范围内的位数变化只伸缩区域内空白,不推动任何相邻内容;
     /// 冲出常用宽度时该格临时变宽、轻微收缩格间距(引擎侧计算)。
-    private func horizontalCell(for item: MenuBarMetricItem) -> some View {
-        HStack(spacing: symbolSpacing) {
+    private func horizontalCell(for item: MenuBarMetricItem, flushTrailing: Bool) -> some View {
+        let natural = MenuBarMetricWidthEngine.naturalPairWidth(for: item, layout: layoutStyle)
+        let common = MenuBarMetricWidthEngine.commonPairWidth(for: item.kind, layout: layoutStyle)
+        // 末格不再把「常用宽度」里用不到的空白留在整组最右侧。
+        let minWidth = flushTrailing ? natural : max(natural, common)
+        return HStack(spacing: symbolSpacing) {
             leading(for: item.kind)
             valueText(for: item)
         }
-        .frame(minWidth: MenuBarMetricWidthEngine.commonPairWidth(for: item.kind, layout: layoutStyle), alignment: .leading)
+        .frame(minWidth: minWidth, alignment: .leading)
     }
 
     /// 数值:数字部分主字号,尾部单位字形小一号、基线对齐弱化(iStat 式层次)。
@@ -120,14 +135,26 @@ struct MenuBarMetricLabel: View {
     /// 紧凑模式:文字标签(小)在上、数值(大)在下的双层排布,专为窄屏机型省空间设计。
     /// 标签与数值都居中对齐,且始终按 `compactCellWidth` 定宽(含末位指标),
     /// 避免数值位数变化(如 8% -> 18%)时上下两行、乃至整个图标宽度跟着跳动。
-    private func compactCell(for item: MenuBarMetricItem) -> some View {
-        VStack(alignment: .center, spacing: -1) {
+    private func compactCell(for item: MenuBarMetricItem, edge: CompactEdge) -> some View {
+        let full = compactCellWidth(for: item.kind)
+        let slack = compactSideSlack(for: item)
+        let (width, alignment): (CGFloat, Alignment) = switch edge {
+        case .only:
+            (max(full - slack * 2, 1), .center)
+        case .leading:
+            (max(full - slack, 1), .leading)
+        case .trailing:
+            (max(full - slack, 1), .trailing)
+        case .middle:
+            (full, .center)
+        }
+        return VStack(alignment: .center, spacing: -1) {
             Text(Self.textPrefix(for: item.kind))
                 .font(compactLabelFont)
             Text(numericValue(for: item))
                 .font(compactValueFont)
         }
-        .frame(width: compactCellWidth(for: item.kind))
+        .frame(width: width, alignment: alignment)
     }
 
     /// 纯数值:trim/剥箭头逻辑同源在布局引擎,横排与紧凑共用。
@@ -163,6 +190,20 @@ struct MenuBarMetricLabel: View {
         case .fanSpeed:
             "9999"
         }
+    }
+
+    /// 居中列里，文字两侧各有一半用不到的预留宽。最外侧的那一半就是多出来的边距。
+    private func compactSideSlack(for item: MenuBarMetricItem) -> CGFloat {
+        let content = compactContentWidth(for: item)
+        return max(0, (compactCellWidth(for: item.kind) - content) / 2)
+    }
+
+    private func compactContentWidth(for item: MenuBarMetricItem) -> CGFloat {
+        let labelWidth = (Self.textPrefix(for: item.kind) as NSString)
+            .size(withAttributes: [.font: Self.compactLabelMeasuringFont]).width
+        let valueWidth = (numericValue(for: item) as NSString)
+            .size(withAttributes: [.font: Self.compactValueMeasuringFont]).width
+        return ceil(max(labelWidth, valueWidth))
     }
 
     /// 双层列宽:取「标签」与「数值最大可能宽度」两者中较宽的一个,

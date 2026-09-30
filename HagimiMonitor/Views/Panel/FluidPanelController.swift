@@ -190,11 +190,6 @@ final class FluidPanelController: NSObject, NSWindowDelegate {
     /// 窗口高度下限:预测链异常时的兜底,至少露出 header 与首行。
     private static let minPanelHeight: CGFloat = 96
 
-    /// 状态项内容左右留白,避免图标/文字贴住菜单栏边缘(系统 MenuBarExtra 自带此留白)。
-    /// 状态项宽度只跟图像走。原先左右各 2pt，再加上 24pt 的最小宽度，
-    /// 圆环两侧会多出一圈菜单栏里用不到的空白。
-    private static let statusItemHorizontalPadding: CGFloat = 0
-
     init(
         store: MonitorStore,
         openSettings: @escaping @MainActor @Sendable () -> Void
@@ -865,11 +860,9 @@ final class FluidPanelController: NSObject, NSWindowDelegate {
         panel.setFrame(newFrame, display: display)
     }
 
-    /// 构造状态项 label 视图:内嵌尺寸读取器,内容宽度变化时更新 `statusItem.length`,
-    /// 使 variableLength 状态项宽度精确跟随图标/文字固有宽度(否则 button 会塌成默认窄宽,
-    /// 图标被挤)。水平留白模拟系统 MenuBarExtra 的边距。
-    /// 把 SwiftUI 状态项 label 快照成 NSImage 赋给 `button.image`,并按图像宽度更新
-    /// `statusItem.length`。快照走 SwiftUI 现有绘制,样式与旧的子视图完全一致。
+    /// 把状态项内容画成 NSImage 交给 `button.image`。
+    /// 长度保持 `variableLength`:系统会在图像左右各留一圈状态栏间距。
+    /// 不要再把 `length` 收成图像宽度,那会吃掉这圈间距;图像本身也不再另加左右留白。
     private func refreshStatusItemImage() {
         // 用「状态项按钮的外观」而非 App 全局外观来决定墨色:菜单栏图标的黑/白由
         // 系统按当前壁纸/菜单栏底色决定(彩色壁纸下会走白字模式),button 的
@@ -912,8 +905,6 @@ final class FluidPanelController: NSObject, NSWindowDelegate {
             guard image !== statusItem.button?.image else { return }
             // isTemplate 已在 MenuBarComputeRingIcon.image(...) 内部设置,此处无需重复赋值。
             statusItem.button?.image = image
-            // 与旧的 .padding(.horizontal) 等价:图像左右各补留白。
-            updateStatusItemLength(image.size.width + Self.statusItemHorizontalPadding * 2)
             return
         }
 
@@ -937,7 +928,6 @@ final class FluidPanelController: NSObject, NSWindowDelegate {
         autoreleasepool {
             let label = MenuBarStatusLabel(store: store, darkMode: isDark)
                 .environment(\.colorScheme, isDark ? .dark : .light)
-                .padding(.horizontal, Self.statusItemHorizontalPadding)
                 .fixedSize()
 
             let renderer = ImageRenderer(content: label)
@@ -973,16 +963,9 @@ final class FluidPanelController: NSObject, NSWindowDelegate {
             }
 
             statusItem.button?.image = image
-            updateStatusItemLength(pointSize.width)
             // 仅在成功产出图像后记录去重键:渲染失败(cgImage 为 nil)时保留旧键,下个 tick 会重试。
             lastMetricsRenderKey = renderKey
         }
-    }
-
-    private func updateStatusItemLength(_ width: CGFloat) {
-        let target = width.rounded(.up)
-        guard target > 0, statusItem.length != target else { return }
-        statusItem.length = target
     }
 
     /// 打开设置窗口前关闭面板(供 AppDelegate 的 openSettings 闭包调用)。
