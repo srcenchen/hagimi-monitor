@@ -89,22 +89,22 @@ enum MenuBarMetricWidthEngine {
     }
 
     /// 各指标的「常用值」锚点,按统计特性分两类:
-    /// - 平稳指标(CPU/温度/功耗/百分比类):典型稳态为两位数,锚定 `99` 档--
-    ///   9↔10 的边界横跳被区域吸收,只有 3 位极值(100%/100°/100W+)才轻微收缩间距;
+    /// - 平稳指标(CPU/温度/功耗/百分比类):至少锚定三位数 `100`。
+    ///   3、23、100 同宽,位数变化不推动边缘;超过三位才轻微收缩间距;
     /// - 跳变指标(网速/存储/风扇):显示宽度天生横跨多个量级,锚小了反而频繁越界
     ///   造成间距抖动,直接锚定最大值,区域恒定。
     private static let commonValues: [MenuBarMetricKind: String] = [
-        .cpuUsage: "99%",
-        .gpuUsage: "99%",
-        .gpuPower: "99W",
-        .memoryUsage: "99%",
-        .memoryPressure: "99%",
-        .memoryBandwidth: "99G",
-        .batteryLevel: "99%",
-        .cpuTemperature: "99°",
-        .systemPower: "99W",
+        .cpuUsage: "100%",
+        .gpuUsage: "100%",
+        .gpuPower: "100W",
+        .memoryUsage: "100%",
+        .memoryPressure: "100%",
+        .memoryBandwidth: "100G",
+        .batteryLevel: "100%",
+        .cpuTemperature: "100°",
+        .systemPower: "100W",
         .displayRefreshRate: "120Hz",
-        .displayPower: "9.9W",
+        .displayPower: "99.9W",
         .networkDownload: "888M",
         .networkUpload: "888M",
         .storageFree: "888G",
