@@ -117,8 +117,9 @@ struct MenuBarMetricLabel: View {
         }
     }
 
-    /// 紧凑模式:文字标签(小)在上、数值(大)在下。列宽取标签与当前数值中较宽的一边,
-    /// 不再为「100%」「888W」预留整列空白。位数跨档(9%→10%)时状态项会跟着收放。
+    /// 紧凑模式:文字标签(小)在上、数值(大)在下的双层排布,专为窄屏机型省空间设计。
+    /// 标签与数值都居中对齐,且始终按 `compactCellWidth` 定宽(含末位指标),
+    /// 避免数值位数变化(如 8% -> 18%)时上下两行、乃至整个图标宽度跟着跳动。
     private func compactCell(for item: MenuBarMetricItem) -> some View {
         VStack(alignment: .center, spacing: -1) {
             Text(Self.textPrefix(for: item.kind))
@@ -126,7 +127,7 @@ struct MenuBarMetricLabel: View {
             Text(numericValue(for: item))
                 .font(compactValueFont)
         }
-        .frame(width: compactCellWidth(for: item))
+        .frame(width: compactCellWidth(for: item.kind))
     }
 
     /// 纯数值:trim/剥箭头逻辑同源在布局引擎,横排与紧凑共用。
@@ -139,13 +140,37 @@ struct MenuBarMetricLabel: View {
         MenuBarMetricWidthEngine.textPrefix(for: kind)
     }
 
-    /// 列宽贴着当前标签和数值。+1 只防测量和渲染差零点几 pt 时把末尾裁掉。
-    private func compactCellWidth(for item: MenuBarMetricItem) -> CGFloat {
-        let labelWidth = (Self.textPrefix(for: item.kind) as NSString)
-            .size(withAttributes: [.font: Self.compactLabelMeasuringFont]).width
-        let valueWidth = (numericValue(for: item) as NSString)
-            .size(withAttributes: [.font: Self.compactValueMeasuringFont]).width
-        return ceil(max(labelWidth, valueWidth)) + 1
+    /// 各指标为紧凑定宽框预留的「最宽可能值」--紧凑列宽以此为测量样本。
+    /// 输入与实例状态无关,故为 static。
+    private static func reservedNumericValue(for kind: MenuBarMetricKind) -> String {
+        switch kind {
+        case .cpuUsage, .gpuUsage, .memoryUsage, .memoryPressure, .batteryLevel:
+            "100%"
+        case .networkDownload, .networkUpload:
+            "888M"
+        case .cpuTemperature:
+            "888°"
+        case .storageFree:
+            "888G"
+        case .systemPower, .gpuPower:
+            "888W"
+        case .memoryBandwidth:
+            "888G"
+        case .displayRefreshRate:
+            "120Hz"
+        case .displayPower:
+            "99.9W"
+        case .fanSpeed:
+            "9999"
+        }
+    }
+
+    /// 双层列宽:取「标签」与「数值最大可能宽度」两者中较宽的一个,
+    /// 保证上下两行都不会因为对方更宽而在切换时左右跳动。
+    /// +2 兜底:测量与渲染的亚像素取整差异会让实测宽度卡在边界,
+    /// 差零点几 pt 时数值被截断成「9…」,预留余量兜底。
+    private func compactCellWidth(for kind: MenuBarMetricKind) -> CGFloat {
+        Self.compactCellWidths[kind]!
     }
 
     private var compactLabelFont: Font {
@@ -165,6 +190,19 @@ struct MenuBarMetricLabel: View {
     private static let compactValueMeasuringFont: NSFont =
         MenuBarMetricWidthEngine.roundedMeasuringFont(size: compactValueFontSize, weight: .bold, monospacedDigit: true)
 
+    /// 各指标的列宽:取「标签宽度」与「数值最大宽度」中较宽者,一次性测得并复用。
+    private static let compactCellWidths: [MenuBarMetricKind: CGFloat] = {
+        var cache: [MenuBarMetricKind: CGFloat] = [:]
+        for kind in MenuBarMetricKind.allCases {
+            let labelWidth = (MenuBarMetricWidthEngine.textPrefix(for: kind) as NSString)
+                .size(withAttributes: [.font: compactLabelMeasuringFont]).width
+            let valueWidth = (reservedNumericValue(for: kind) as NSString)
+                .size(withAttributes: [.font: compactValueMeasuringFont]).width
+            cache[kind] = ceil(max(labelWidth, valueWidth)) + 2
+        }
+        return cache
+    }()
+
     /// icon 字号,同源在布局引擎(icon 测量与渲染必须一致)。
     private static var iconFontSize: CGFloat { MenuBarMetricWidthEngine.iconFontSize }
 
@@ -178,5 +216,5 @@ struct MenuBarMetricLabel: View {
     private var symbolSpacing: CGFloat { MenuBarMetricWidthEngine.symbolSpacing }
 
     /// 紧凑模式指标之间的间距。
-    private var interCellSpacing: CGFloat { 1 }
+    private var interCellSpacing: CGFloat { 2 }
 }
