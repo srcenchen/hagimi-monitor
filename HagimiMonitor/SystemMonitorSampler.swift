@@ -15,6 +15,28 @@ nonisolated final class SystemMonitorSampler: Sendable {
         .battery: BatterySampler()
     ]
 
+    /// 只推进电池模块上的系统功耗，其余模块保持调用方传入的上一帧。
+    func sampleSystemPower(previous: MonitorModule?) -> MonitorModule {
+        guard let battery = samplers[.battery] as? BatterySampler else {
+            return previous ?? MonitorModule.placeholder(kind: .battery)
+        }
+        return battery.sampleSystemPowerOnly(previous: previous)
+    }
+
+    func sampleSystemPowerAsync(
+        previous: MonitorModule?,
+        on queue: DispatchQueue,
+        completion: @escaping @MainActor @Sendable (MonitorModule) -> Void
+    ) {
+        queue.async { [weak self] in
+            guard let self else { return }
+            let module = self.sampleSystemPower(previous: previous)
+            Task { @MainActor in
+                completion(module)
+            }
+        }
+    }
+
     func sample(previousModules: [MonitorModule]) -> Result<SystemMonitorSnapshot, SamplingError> {
         sample(kinds: MonitorKind.samplerBackedCases, previousModules: previousModules)
     }

@@ -22,6 +22,63 @@ nonisolated enum HaloRingSource: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+/// 面板收起且数据统计关闭时，后台只保留菜单栏（以及正在显示的 Game HUD）要用的模块。
+/// 返回 nil 表示不裁剪，六个采样模块照常跑。
+enum MenuBarSamplingDemand {
+    static func requiredKinds(
+        mode: MenuBarDisplayMode,
+        metrics: [MenuBarMetricKind],
+        extraKinds: Set<MonitorKind> = []
+    ) -> Set<MonitorKind> {
+        var kinds = extraKinds
+        switch mode {
+        case .ring:
+            kinds.formUnion([.cpu, .gpu, .memory])
+        case .metrics:
+            for metric in metrics {
+                if let kind = monitorKind(for: metric) {
+                    kinds.insert(kind)
+                }
+            }
+        }
+        return kinds
+    }
+
+    /// 菜单栏指标对应的采样模块。刷新率和风扇不走这条管线：
+    /// 刷新率是绘制时的 CG 读取，风扇由独立 SMC 采样器供给告警。
+    static func monitorKind(for metric: MenuBarMetricKind) -> MonitorKind? {
+        switch metric {
+        case .cpuUsage, .cpuTemperature:
+            .cpu
+        case .gpuUsage:
+            .gpu
+        case .gpuPower, .displayPower, .batteryLevel, .systemPower:
+            .battery
+        case .memoryUsage, .memoryPressure, .memoryBandwidth:
+            .memory
+        case .networkDownload, .networkUpload:
+            .network
+        case .storageFree:
+            .storage
+        case .displayRefreshRate, .fanSpeed:
+            nil
+        }
+    }
+
+    /// 电源模块在场，只是因为要系统功耗。电量、屏幕功耗、GPU 功耗都需要整份电池采样。
+    static func batteryNeedsOnlySystemPower(
+        mode: MenuBarDisplayMode,
+        metrics: [MenuBarMetricKind],
+        allowed: Set<MonitorKind>,
+        hudNeedsFullBattery: Bool
+    ) -> Bool {
+        guard allowed.contains(.battery), !hudNeedsFullBattery else { return false }
+        guard mode == .metrics else { return true }
+        let heavy: Set<MenuBarMetricKind> = [.batteryLevel, .displayPower, .gpuPower]
+        return !metrics.contains { heavy.contains($0) }
+    }
+}
+
 nonisolated enum MemoryPressureLevel: Int, Equatable, Sendable {
     case normal = 0
     case warning = 1
@@ -563,6 +620,9 @@ final class MonitorStore: ObservableObject {
     /// 驱动器(菜单栏面板与钉住面板并存时展开态互不牵动)。
     /// 面板是否可见,用于按需启停进程采样。
     @Published private(set) var isPanelVisible = false
+    /// 指标模式状态栏的额外刷新拍。显示刷新率、以及收起后面板看不见的系统功耗，
+    /// 都不会改到可见模块数组，靠这一拍把菜单栏图标拉起来重画。
+    @Published private(set) var menuBarMetricsRefreshTick: UInt = 0
 
     /// 历史统计记录器:把每秒采样帧聚合成分钟行落库(见 StatisticsRecorder)。
     /// 设置页「数据统计」与网页报表共用其数据。
@@ -629,6 +689,7 @@ nonisolated private final class PowerSourceRunLoopBox: @unchecked Sendable {
     private var cancellables: Set<AnyCancellable> = []
     private var isSampling = false
     private var pendingSampleKinds: Set<MonitorKind> = []
+    private var pendingLightweightPower = false
     /// 风扇采样器(独立于 SystemMonitorSampler,因为它读 SMC 而非 Mach,
     /// 且输出是「多风扇列表」而非「单模块值」)。
     private let fanSampler = FanSampler()
@@ -655,6 +716,7 @@ nonisolated private final class PowerSourceRunLoopBox: @unchecked Sendable {
         self.settings = settings
         allModules = initialModules
         modules = initialModules.filter { settings.isVisible($0.kind) }
+        refreshSchedule.setInterval(settings.powerRefreshInterval.seconds, for: .battery)
         advance(kinds: MonitorKind.samplerBackedCases)
         refreshSchedule.markRefreshed(MonitorKind.samplerBackedCases, at: Date())
         settings.objectWillChange
@@ -669,8 +731,17 @@ nonisolated private final class PowerSourceRunLoopBox: @unchecked Sendable {
         timerCancellable = Timer.publish(every: refreshSchedule.tickInterval, on: .main, in: .common)
             .autoconnect()
             .sink { [weak self] _ in
+                self?.pulseMenuBarChromeIfNeeded()
                 self?.advance()
             }
+
+        settings.$powerRefreshInterval
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] interval in
+                self?.refreshSchedule.setInterval(interval.seconds, for: .battery)
+            }
+            .store(in: &cancellables)
 
         startPowerSourceMonitoring()
 
@@ -777,6 +848,7 @@ nonisolated private final class PowerSourceRunLoopBox: @unchecked Sendable {
         }
 
         startStatisticsProcessSampling()
+        syncAuxiliarySampling()
     }
 
     // MARK: - 统计进程采样
@@ -839,10 +911,13 @@ nonisolated private final class PowerSourceRunLoopBox: @unchecked Sendable {
             statisticsSamplingActive = true
             statisticsRecorder.resume()
             installStatisticsProcessTimer()
+            syncAuxiliarySampling()
+            advance(kinds: MonitorKind.samplerBackedCases)
         } else {
             statisticsSamplingActive = false
             statsProcTimer = nil
             statisticsRecorder.suspend()
+            syncAuxiliarySampling()
         }
     }
 
@@ -920,6 +995,9 @@ nonisolated private final class PowerSourceRunLoopBox: @unchecked Sendable {
             isPanelVisible = true
             startProcSampleTimer()
             refreshAllProcesses()
+            syncAuxiliarySampling()
+            // 收起期间被跳过的模块没有刷新时间戳，这里直接补一帧，不用等下一拍。
+            advance(kinds: MonitorKind.samplerBackedCases)
         }
     }
 
@@ -932,6 +1010,22 @@ nonisolated private final class PowerSourceRunLoopBox: @unchecked Sendable {
             processSampleGeneration &+= 1
             stopProcSampleTimer()
             clearProcesses()
+            syncAuxiliarySampling()
+        }
+    }
+
+    /// 面板收起且统计关闭时，蓝牙探针没有菜单栏消费者，停掉。
+    /// 风扇采样保持常驻：告警在面板关闭时仍要能报停转。
+    private func syncAuxiliarySampling() {
+        let reduced = !isPanelVisible && !statisticsSamplingActive
+        if reduced {
+            bluetoothSampler.stop()
+            return
+        }
+        guard settings.isVisible(.bluetooth) else { return }
+        bluetoothSampler.start()
+        if !visiblePanelKinds.isEmpty {
+            bluetoothSampler.activateBLE()
         }
     }
 
@@ -1314,11 +1408,119 @@ nonisolated private final class PowerSourceRunLoopBox: @unchecked Sendable {
     }
 
     private func advance() {
-        let kinds = refreshSchedule.dueKinds(at: Date())
-        guard !kinds.isEmpty else {
+        let now = Date()
+        let allowance = currentSamplingAllowance()
+        let lightweight = allowance.map {
+            MenuBarSamplingDemand.batteryNeedsOnlySystemPower(
+                mode: settings.menuBarDisplayMode,
+                metrics: settings.menuBarMetricKinds,
+                allowed: $0,
+                hudNeedsFullBattery: hudNeedsFullBatterySample
+            )
+        } ?? false
+        var sampleAllowance = allowance
+        if lightweight {
+            sampleAllowance?.remove(.battery)
+        }
+        let powerDue = lightweight && refreshSchedule.isDue(.battery, at: now)
+        if powerDue {
+            refreshSchedule.markRefreshed([.battery], at: now)
+        }
+        let kinds = refreshSchedule.dueKinds(at: now, allowed: sampleAllowance)
+        if powerDue {
+            refreshSystemPowerOnly()
+        }
+        guard !kinds.isEmpty else { return }
+        advance(kinds: kinds)
+    }
+
+    /// nil：面板开着或统计开着，六个模块都采。否则只采菜单栏和可见 HUD 要用的。
+    private func currentSamplingAllowance() -> Set<MonitorKind>? {
+        guard !isPanelVisible, !statisticsSamplingActive else { return nil }
+        return MenuBarSamplingDemand.requiredKinds(
+            mode: settings.menuBarDisplayMode,
+            metrics: settings.menuBarMetricKinds,
+            extraKinds: hudRequiredKinds()
+        )
+    }
+
+    private var hudNeedsFullBatterySample: Bool {
+        #if DIRECT_DISTRIBUTION
+        guard gameHUDSnapshotProvider.activeSubscribers > 0 else { return false }
+        let enabled = settings.gameHUDEnabledMetricIDs
+        return enabled.contains(.cpuPower) || enabled.contains(.gpuPower)
+        #else
+        return false
+        #endif
+    }
+
+    private func hudRequiredKinds() -> Set<MonitorKind> {
+        #if DIRECT_DISTRIBUTION
+        guard gameHUDSnapshotProvider.activeSubscribers > 0 else { return [] }
+        let enabled = settings.gameHUDEnabledMetricIDs
+        return Set(GameHUDMetricCatalog.availableEntries().compactMap { entry in
+            enabled.contains(entry.id) ? entry.kind : nil
+        })
+        #else
+        return []
+        #endif
+    }
+
+    /// 只刷新系统功耗这一格。收起面板、关掉统计、菜单栏又只要整机瓦数时，
+    /// 不跑 IOPS / 电芯 / IOReport / 分应用能耗。
+    private func refreshSystemPowerOnly() {
+        if isSampling {
+            pendingLightweightPower = true
             return
         }
-        advance(kinds: kinds)
+        isSampling = true
+        let previous = allModules.first { $0.kind == .battery }
+        sampler.sampleSystemPowerAsync(previous: previous, on: samplingQueue) { [weak self] module in
+            guard let self else { return }
+            self.applyLightweightPower(module)
+            self.finishSamplingCycle()
+        }
+    }
+
+    private func applyLightweightPower(_ module: MonitorModule) {
+        if let index = allModules.firstIndex(where: { $0.kind == .battery }) {
+            guard allModules[index] != module else { return }
+            allModules[index] = module
+        } else {
+            allModules.append(module)
+        }
+        let visible = visibleModules(from: allModules)
+        if modules != visible {
+            modules = visible
+        }
+        menuBarMetricsRefreshTick &+= 1
+        #if DIRECT_DISTRIBUTION
+        if gameHUDSnapshotProvider.activeSubscribers > 0 {
+            gameHUDSnapshotProvider.publishIfChanged(enabledIDs: settings.gameHUDEnabledMetricIDs)
+        }
+        #endif
+    }
+
+    private func pulseMenuBarChromeIfNeeded() {
+        guard settings.menuBarDisplayMode == .metrics else { return }
+        guard settings.menuBarMetricKinds.contains(.displayRefreshRate) else { return }
+        menuBarMetricsRefreshTick &+= 1
+    }
+
+    private func finishSamplingCycle() {
+        if !pendingSampleKinds.isEmpty {
+            let kinds = pendingSampleKinds
+            pendingSampleKinds.removeAll()
+            runSampling(kinds: kinds)
+            return
+        }
+        if pendingLightweightPower {
+            pendingLightweightPower = false
+            isSampling = false
+            refreshSystemPowerOnly()
+            return
+        }
+        isSampling = false
     }
 
     private func advance(kinds: some Sequence<MonitorKind>) {
@@ -1389,13 +1591,7 @@ nonisolated private final class PowerSourceRunLoopBox: @unchecked Sendable {
             AppLogStore.shared.error(message, category: "sampler")
         }
 
-        if pendingSampleKinds.isEmpty {
-            isSampling = false
-        } else {
-            let kinds = pendingSampleKinds
-            pendingSampleKinds.removeAll()
-            runSampling(kinds: kinds)
-        }
+        finishSamplingCycle()
     }
 
     /// 应用一次成功采样的结果到发布属性。
@@ -1683,7 +1879,7 @@ enum ComputeLoadModel {
 final class MonitorRefreshSchedule {
     let tickInterval: TimeInterval
 
-    private let intervals: [MonitorKind: TimeInterval]
+    private var intervals: [MonitorKind: TimeInterval]
     private var lastRefreshDates: [MonitorKind: Date] = [:]
 
     init(
@@ -1697,15 +1893,23 @@ final class MonitorRefreshSchedule {
         self.intervals = intervals
     }
 
-    func dueKinds(at date: Date) -> [MonitorKind] {
+    func setInterval(_ interval: TimeInterval, for kind: MonitorKind) {
+        intervals[kind] = interval
+    }
+
+    func isDue(_ kind: MonitorKind, at date: Date) -> Bool {
+        let interval = intervals[kind] ?? tickInterval
+        guard let lastRefreshDate = lastRefreshDates[kind] else { return true }
+        return date.timeIntervalSince(lastRefreshDate) >= interval
+    }
+
+    /// `allowed` 为 nil 时六个模块都参与排期。传入集合时，集合外的模块不记刷新时间，
+    /// 这样面板重新打开后它们会立刻到期，而不是把收起期间当成已经采过。
+    func dueKinds(at date: Date, allowed: Set<MonitorKind>? = nil) -> [MonitorKind] {
         // 只对采样管线类目排期:风扇/蓝牙由独立采样器驱动(见 samplerBackedCases)。
         let dueKinds = MonitorKind.samplerBackedCases.filter { kind in
-            let interval = intervals[kind] ?? tickInterval
-            guard let lastRefreshDate = lastRefreshDates[kind] else {
-                return true
-            }
-
-            return date.timeIntervalSince(lastRefreshDate) >= interval
+            if let allowed, !allowed.contains(kind) { return false }
+            return isDue(kind, at: date)
         }
         markRefreshed(dueKinds, at: date)
         return dueKinds

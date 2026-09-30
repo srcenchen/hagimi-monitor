@@ -191,7 +191,9 @@ final class FluidPanelController: NSObject, NSWindowDelegate {
     private static let minPanelHeight: CGFloat = 96
 
     /// 状态项内容左右留白,避免图标/文字贴住菜单栏边缘(系统 MenuBarExtra 自带此留白)。
-    private static let statusItemHorizontalPadding: CGFloat = 2
+    /// 状态项宽度只跟图像走。原先左右各 2pt，再加上 24pt 的最小宽度，
+    /// 圆环两侧会多出一圈菜单栏里用不到的空白。
+    private static let statusItemHorizontalPadding: CGFloat = 0
 
     init(
         store: MonitorStore,
@@ -383,6 +385,20 @@ final class FluidPanelController: NSObject, NSWindowDelegate {
         // 内部的 MetricsRenderKey 去重挡下,故此处每秒触发的实际开销极低(环模式命中缓存图)。
         store.$modules
             .sink { [weak self] _ in self?.refreshStatusItemImage() }
+            .store(in: &cancellables)
+        // 显示刷新率和「只采系统功耗」都不会改可见模块数组。风扇转速走独立采样器，
+        // 指标模式要跟着它重画，否则只勾风扇时图标会停在上一帧。
+        store.$menuBarMetricsRefreshTick
+            .sink { [weak self] _ in
+                guard self?.store.settings.menuBarDisplayMode == .metrics else { return }
+                self?.refreshStatusItemImage()
+            }
+            .store(in: &cancellables)
+        store.$fans
+            .sink { [weak self] _ in
+                guard self?.store.settings.menuBarDisplayMode == .metrics else { return }
+                self?.refreshStatusItemImage()
+            }
             .store(in: &cancellables)
 
         // 告警红点起灭:立即重刷,不等下一秒的 modules tick。
@@ -964,8 +980,8 @@ final class FluidPanelController: NSObject, NSWindowDelegate {
     }
 
     private func updateStatusItemLength(_ width: CGFloat) {
-        let target = max(width.rounded(.up), 24)
-        guard statusItem.length != target else { return }
+        let target = width.rounded(.up)
+        guard target > 0, statusItem.length != target else { return }
         statusItem.length = target
     }
 

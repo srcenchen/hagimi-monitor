@@ -7786,6 +7786,62 @@
         }
       }
     },
+    "settings.power.refresh-interval": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Power refresh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "功耗刷新"
+          }
+        }
+      }
+    },
+    "settings.power.refresh-interval.subtitle": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How often system power is read. The menu bar uses the same interval."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系统功耗的采样间隔，状态栏与电源页共用"
+          }
+        }
+      }
+    },
+    "settings.power.refresh-interval.1": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "1 s" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "1 秒" } }
+      }
+    },
+    "settings.power.refresh-interval.2": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "2 s" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "2 秒" } }
+      }
+    },
+    "settings.power.refresh-interval.5": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "5 s" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "5 秒" } }
+      }
+    },
+    "settings.power.refresh-interval.10": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "10 s" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "10 秒" } }
+      }
+    },
     "settings.battery.tab-no-metrics": {
       "localizations": {
         "en": {

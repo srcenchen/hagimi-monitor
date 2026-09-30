@@ -2,9 +2,9 @@ import AppKit
 import Foundation
 
 enum MenuBarComputeRingIcon {
-    /// 图标画布 21pt:原 18pt 图标区域居中,四周各留 1.5pt,让告警红点落在环外
-    /// 而不是压在环线上;环与轨道的几何不变,只多了这圈留白。
-    private static let iconSize: CGFloat = 21
+    /// 画布收到 18pt。环和轨道的几何不变，左右不再为红点多留一圈空档；
+    /// 告警点仍画在右上角，偶尔和环线靠近，换来状态栏更紧的占位。
+    private static let iconSize: CGFloat = 18
 
     /// 内部锁，确保并发请求同一个 bucket 时只绘制一次并安全缓存
     private static let lock = NSLock()

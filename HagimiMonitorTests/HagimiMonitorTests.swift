@@ -124,6 +124,48 @@ struct HagimiMonitorTests {
         #expect(schedule.tickInterval == 1.0)
     }
 
+    @Test func reducedSamplingKeepsOnlyMenuBarKinds() {
+        #expect(MenuBarSamplingDemand.requiredKinds(mode: .ring, metrics: [.systemPower]) == Set([.cpu, .gpu, .memory]))
+        #expect(
+            MenuBarSamplingDemand.requiredKinds(mode: .metrics, metrics: [.systemPower, .displayRefreshRate])
+                == Set([.battery])
+        )
+        #expect(
+            MenuBarSamplingDemand.requiredKinds(
+                mode: .metrics,
+                metrics: [.cpuUsage],
+                extraKinds: [.network]
+            ) == Set([.cpu, .network])
+        )
+        #expect(
+            MenuBarSamplingDemand.batteryNeedsOnlySystemPower(
+                mode: .metrics,
+                metrics: [.systemPower, .cpuUsage],
+                allowed: [.battery, .cpu],
+                hudNeedsFullBattery: false
+            )
+        )
+        #expect(
+            !MenuBarSamplingDemand.batteryNeedsOnlySystemPower(
+                mode: .metrics,
+                metrics: [.systemPower, .batteryLevel],
+                allowed: [.battery],
+                hudNeedsFullBattery: false
+            )
+        )
+    }
+
+    @Test func reducedSamplingDoesNotRefreshSkippedKinds() {
+        let schedule = MonitorRefreshSchedule()
+        let start = Date()
+        let first = schedule.dueKinds(at: start, allowed: [.cpu])
+        #expect(first == [.cpu])
+        let skipped = schedule.dueKinds(at: start.addingTimeInterval(0.5), allowed: nil)
+        #expect(skipped.contains(.gpu))
+        #expect(skipped.contains(.battery))
+        #expect(!skipped.contains(.cpu))
+    }
+
     @Test func networkAddressSummaryFormatsAddresses() {
         #expect(networkAddressSummary(["192.168.1.8"]) == "192.168.1.8")
         #expect(networkAddressSummary(["192.168.1.8", "2001:db8::8"]) == "192.168.1.8, 2001:db8::8")

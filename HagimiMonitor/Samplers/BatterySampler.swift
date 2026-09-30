@@ -76,13 +76,14 @@ nonisolated final class BatterySampler: MonitorSampler, @unchecked Sendable {
         let chargingPower = connected
             ? (smart.telemetryChargingWatts ?? smart.chargingPowerWatts)
             : nil
+        let registryPower = smart.systemPowerWatts ?? powerTelemetryWatts()
         #if DISPLAY_CONTROL
-        let systemPower = smart.systemPowerWatts
-            ?? powerTelemetryWatts()
-            ?? smcReader?.systemPower()
-            ?? smcReader?.dcInputPower()
+        // PSTR 约每秒更新；SystemLoad 是固件每 60 秒才公布的一分钟平均值。
+        let systemPower = preferredSystemPowerWatts(
+            registryFallback: registryPower ?? smcReader?.dcInputPower()
+        )
         #else
-        let systemPower = smart.systemPowerWatts ?? powerTelemetryWatts()
+        let systemPower = registryPower
         #endif
 
         // 功率流:适配器实际输入、电池流向(正=充电/负=放电)。
@@ -201,13 +202,13 @@ nonisolated final class BatterySampler: MonitorSampler, @unchecked Sendable {
     /// IOPS 接口失败不共用本模块,走 `unavailableModule`,避免伪装成交流供电。
     private func externalPowerModule() -> MonitorModule {
         let adapterWatts = externalAdapterWatts()
-        // 桌面机型无 AppleSmartBattery, PowerTelemetry 恒为 nil;
-        // Direct 版由 SMC 补充:优先取 PSTR(整机负载),缺失时以 PDTR(DC 输入)作为负载的近似兜底。
+        // 桌面机型无 AppleSmartBattery。Direct 版优先 SMC PSTR，
+        // 遥测缺失时才用 PDTR(DC 输入)近似整机负载。
         // 输入轨 powerInWatts 仅由 PDTR 实测填充,无真实读数时保持 nil,绝不用负载反向伪造输入。
         #if DISPLAY_CONTROL
-        let powerWatts = powerTelemetryWatts()
-            ?? smcReader?.systemPower()
-            ?? smcReader?.dcInputPower()
+        let powerWatts = preferredSystemPowerWatts(
+            registryFallback: powerTelemetryWatts() ?? smcReader?.dcInputPower()
+        )
         let powerInWatts = smcReader?.dcInputPower()
         #else
         let powerWatts = powerTelemetryWatts()
@@ -238,6 +239,41 @@ nonisolated final class BatterySampler: MonitorSampler, @unchecked Sendable {
         module.processEnergy = processEnergy
         #endif
         return module
+    }
+
+    /// 只更新系统功耗。给「面板收起 + 统计关闭 + 菜单栏只要整机瓦数」用，
+    /// 避免为了一个 SMC 键把电芯、端口和 IOReport 整棵树都读一遍。
+    func sampleSystemPowerOnly(previous: MonitorModule?) -> MonitorModule {
+        let watts = preferredSystemPowerWatts(registryFallback: powerTelemetryWatts())
+        var module = previous ?? MonitorModule(
+            kind: .battery,
+            value: 0,
+            summary: "--",
+            metrics: [],
+            samples: []
+        )
+        let metric = MonitorMetric(
+            name: "power",
+            value: wattString(watts),
+            numericValue: watts,
+            unit: watts == nil ? nil : " W"
+        )
+        if let index = module.metrics.firstIndex(where: { $0.name == "power" }) {
+            module.metrics[index] = metric
+        } else {
+            module.metrics.append(metric)
+        }
+        return module
+    }
+
+    /// 直连版先读 SMC `PSTR`。读不到（沙盒、键缺失、非有限值）再退回注册表。
+    private func preferredSystemPowerWatts(registryFallback: Double?) -> Double? {
+        #if DISPLAY_CONTROL
+        if let pstr = smcReader?.systemPower(), pstr.isFinite, pstr >= 0 {
+            return pstr
+        }
+        #endif
+        return registryFallback
     }
 
     /// IOPS 接口不可信时的缺失态模块:不声称任何电源状态、不产出数值,
