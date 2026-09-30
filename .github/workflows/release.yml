@@ -224,7 +224,7 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-san$ ]] || { echo "非法个人构建标签: $RELEASE_TAG"; exit 1; }
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9]+)*-san$ ]] || { echo "非法个人构建标签: $RELEASE_TAG"; exit 1; }
           APP_PATH="build/HagimiMonitor.xcarchive/Products/Applications/HagimiMonitorDirect.app"
           mkdir -p build/appcast
           ditto -c -k --keepParent "$APP_PATH" "build/appcast/HagimiMonitor-${RELEASE_TAG}.zip"
