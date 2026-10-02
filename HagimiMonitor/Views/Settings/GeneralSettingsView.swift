@@ -508,7 +508,7 @@ private struct MenuBarDisplaySettingsSection: View {
             Image(nsImage: MenuBarComputeRingIcon.image(
                 load: store.loadAnimator.displayedComputeLoad,
                 darkMode: NSApp.effectiveAppearance.isDark,
-                loadLevel: store.haloRingLoadLevel
+                showsAlert: false
             ))
             .resizable()
             // 与菜单栏里的实际图标同尺寸(16pt 画布)。
