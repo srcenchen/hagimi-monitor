@@ -137,6 +137,10 @@ final class StatisticsRecorder: ObservableObject {
     /// 超过该上限视为睡眠或长时间未采样，不补区间。
     nonisolated static let processSampleIntegrationCap: TimeInterval = 90
 
+    /// 当前全局采样间隔(秒)。秒数口径的 maxGap 随之下调/上调,
+    /// 保证低频档位下正常采样不被误判为中断而漏记。
+    var samplingInterval: TimeInterval = 1
+
     /// 各范围的聚合行(无数据为 nil)。分钟封口后随概览一起刷新。
     @Published private(set) var rangeRows: [StatisticsOverviewRange: StatisticsRow?] = [:]
     /// 从最早一条记录至今的自然日数(0 = 尚无任何数据)。
@@ -237,19 +241,12 @@ final class StatisticsRecorder: ObservableObject {
         case cpu, gpu, memory, thermal
     }
 
-    /// 每源的预期采样周期(与 MonitorRefreshSchedule 的排期一致)。maxGap 取
-    /// 模型 §5 的初始建议「3× 预期周期、上限 30s」;1s 源的 3 倍仅 3s,采样
-    /// 串行排队与展开动画推迟会让相邻帧短暂超过它,那不是中断,故设 6s 下限。
-    private static let expectedIntervals: [ObservationDimension: TimeInterval] = [
-        .cpu: 1,
-        .gpu: 2,
-        .memory: 3,
-        // 热状态与 CPU 同帧产出(ProcessInfo.thermalState),契约与 CPU 一致。
-        .thermal: 1,
-    ]
-
-    private static func maxGap(for dimension: ObservationDimension) -> TimeInterval {
-        min(30, max(3 * (expectedIntervals[dimension] ?? 1), 6))
+    /// 最大有效间隔:取模型 §5 的建议「3× 预期采样周期、上限 30s」。
+    /// 六类模块统一走全局刷新频率,故预期周期即 `samplingInterval`;1s 档的
+    /// 3 倍仅 3s,采样串行排队与展开动画推迟会让相邻帧短暂超过它,那不是中断,
+    /// 故设 6s 下限。全局频率调慢时同步放宽,避免漏记秒数。
+    private func maxGap(for _: ObservationDimension) -> TimeInterval {
+        min(30, max(3 * samplingInterval, 6))
     }
 
     /// 上次新鲜观测:时刻 + 当时的判定值。CPU/GPU 存利用率;内存/热状态存
@@ -572,7 +569,7 @@ final class StatisticsRecorder: ObservableObject {
         defer { lastObservation[dimension] = LastObservation(at: date, value: value, level: level) }
         guard let previous = lastObservation[dimension] else { return nil }
         let gap = date.timeIntervalSince(previous.at)
-        guard gap > 0, gap <= Self.maxGap(for: dimension) else { return nil }
+        guard gap > 0, gap <= maxGap(for: dimension) else { return nil }
         return (previous, gap)
     }
 
@@ -588,7 +585,7 @@ final class StatisticsRecorder: ObservableObject {
         defer { lastIntersection = (date, memLevel, thermalLevel) }
         guard let last = lastIntersection else { return }
         let gap = date.timeIntervalSince(last.at)
-        guard gap > 0, gap <= min(Self.maxGap(for: .memory), Self.maxGap(for: .thermal)) else { return }
+        guard gap > 0, gap <= min(maxGap(for: .memory), maxGap(for: .thermal)) else { return }
         accumulator.sums[Self.index("valid_mem_thermal_s")] += gap
         accumulator.sums[Self.memoryIntersectionSecondsIndex(last.memLevel)] += gap
         accumulator.sums[Self.thermalIntersectionSecondsIndex(last.thermalLevel)] += gap
@@ -597,7 +594,7 @@ final class StatisticsRecorder: ObservableObject {
     /// 维度在该时刻是否已知:有观测、未被 maxGap 判过期、档位可判定。
     private func knownLevel(of dimension: ObservationDimension, at date: Date) -> Int? {
         guard let observation = lastObservation[dimension], let level = observation.level else { return nil }
-        return date.timeIntervalSince(observation.at) <= Self.maxGap(for: dimension) ? level : nil
+        return date.timeIntervalSince(observation.at) <= maxGap(for: dimension) ? level : nil
     }
 
     /// 内存压力档位:kern.memorystatus_vm_pressure_level 的 0/1/2(normal/

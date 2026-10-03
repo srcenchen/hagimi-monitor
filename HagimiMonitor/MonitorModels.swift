@@ -717,7 +717,8 @@ nonisolated private final class PowerSourceRunLoopBox: @unchecked Sendable {
         self.settings = settings
         allModules = initialModules
         modules = initialModules.filter { settings.isVisible($0.kind) }
-        refreshSchedule.setInterval(settings.powerRefreshInterval.seconds, for: .battery)
+        refreshSchedule.setGlobalInterval(settings.globalRefreshInterval.seconds)
+        statisticsRecorder.samplingInterval = settings.globalRefreshInterval.seconds
         advance(kinds: MonitorKind.samplerBackedCases)
         refreshSchedule.markRefreshed(MonitorKind.samplerBackedCases, at: Date())
         settings.objectWillChange
@@ -729,18 +730,16 @@ nonisolated private final class PowerSourceRunLoopBox: @unchecked Sendable {
             }
             .store(in: &cancellables)
 
-        timerCancellable = Timer.publish(every: refreshSchedule.tickInterval, on: .main, in: .common)
-            .autoconnect()
-            .sink { [weak self] _ in
-                self?.pulseMenuBarChromeIfNeeded()
-                self?.advance()
-            }
+        restartSamplingTimer()
 
-        settings.$powerRefreshInterval
+        settings.$globalRefreshInterval
             .dropFirst()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] interval in
-                self?.refreshSchedule.setInterval(interval.seconds, for: .battery)
+                guard let self else { return }
+                self.refreshSchedule.setGlobalInterval(interval.seconds)
+                self.statisticsRecorder.samplingInterval = interval.seconds
+                self.restartSamplingTimer()
             }
             .store(in: &cancellables)
 
@@ -1390,6 +1389,18 @@ nonisolated private final class PowerSourceRunLoopBox: @unchecked Sendable {
         allModules.first { $0.kind == kind }?.metrics.first { $0.name == name }?.numericValue
     }
 
+    /// 按当前全局刷新频率(重)建采样心跳。间隔变化时旧计时器必须作废,
+    /// 否则低频档位下仍会按旧节奏空转唤醒。
+    private func restartSamplingTimer() {
+        timerCancellable?.cancel()
+        timerCancellable = Timer.publish(every: refreshSchedule.tickInterval, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in
+                self?.pulseMenuBarChromeIfNeeded()
+                self?.advance()
+            }
+    }
+
     private func advance() {
         let now = Date()
         let allowance = currentSamplingAllowance()
@@ -1724,7 +1735,7 @@ enum ComputeLoadModel {
 }
 
 final class MonitorRefreshSchedule {
-    let tickInterval: TimeInterval
+    private(set) var tickInterval: TimeInterval
 
     private var intervals: [MonitorKind: TimeInterval]
     private var lastRefreshDates: [MonitorKind: Date] = [:]
@@ -1738,6 +1749,16 @@ final class MonitorRefreshSchedule {
     ) {
         self.tickInterval = tickInterval
         self.intervals = intervals
+    }
+
+    /// 全局刷新频率:所有采样管线类目统一使用该间隔,心跳 tick 同步对齐,
+    /// 避免低频档位下仍按 1 秒空转唤醒。
+    func setGlobalInterval(_ interval: TimeInterval) {
+        let interval = max(0.1, interval)
+        tickInterval = interval
+        for kind in MonitorKind.samplerBackedCases {
+            intervals[kind] = interval
+        }
     }
 
     func setInterval(_ interval: TimeInterval, for kind: MonitorKind) {

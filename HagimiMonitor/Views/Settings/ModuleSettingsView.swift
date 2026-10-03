@@ -33,23 +33,6 @@ struct ModuleSettingsView: View {
                     .toggleStyle(.switch)
                     .labelsHidden()
                 }
-
-                if kind == .battery {
-                    SettingsDivider()
-                    SettingsRow(
-                        title: String(localized: "settings.power.refresh-interval"),
-                        subtitle: String(localized: "settings.power.refresh-interval.subtitle")
-                    ) {
-                        Picker(String(localized: "settings.power.refresh-interval"), selection: $settings.powerRefreshInterval) {
-                            ForEach(PowerRefreshInterval.allCases) { interval in
-                                Text(interval.title).tag(interval)
-                            }
-                        }
-                        .labelsHidden()
-                        .compatibleTabPickerStyle()
-                        .frame(width: 120)
-                    }
-                }
             }
 
             // 模块关闭后，下方的指标 / 进程 / 重置等选项都失去意义，直接隐藏。

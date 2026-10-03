@@ -1,42 +1,31 @@
 ## 更新内容
 
-感谢 GPT 6.1 Sol 的倾情支持，困扰许久的软件性能终于得到大幅度的跃升。同时感谢 @srcenchen 为供电读数改进贡献的 PR。建议所有用户更新。
+同步上游 v1.7.0，并新增全局刷新频率控制。个人构建未使用苹果开发者证书：下载 zip 后解压，在终端执行 `xattr -cr HagimiMonitorDirect.app` 再打开；若系统仍拦截，对应用右键选「打开」。
 
 ### 中文
 
+#### 新功能
+
+- 新增独立「刷新频率」设置页：一个全局档位统一控制所有监控模块的后台采样间隔，档位为 1 / 2 / 3 / 6 / 10 / 15 秒。
+- 移除原先只作用于系统功耗的功耗刷新间隔设置，改由全局刷新频率统一接管。
+
 #### 优化与体验
 
-- 系统功耗优先读取 SMC PSTR，不再被固件每分钟才更新的 SystemLoad 拖住。
-- 电源设置可自选功耗刷新间隔（1 / 2 / 5 / 10 秒）。
-- 面板收起且关闭数据统计时，后台只采集状态栏实际要用的模块。
-- 状态栏左右只保留系统自带的边距，不再在图标外侧另加一圈空白。
-- 菜单栏指标列宽至少按三位数预留，3%、23%、100% 切换时不再把旁边的图标挤动。
-
-个人构建未使用苹果开发者证书。下载 zip 后解压，在终端执行 `xattr -cr HagimiMonitorDirect.app`，再打开。若系统仍拦截，对应用右键选「打开」。
-- 数据统计体验与口径全面升级：统一各模块的容量/流量单位、百分比基准与档位阈值，修复网络速率与区间总量混用导致的读数矛盾；应用高占用事件现在区分「持续高占用」「累计高占用」与观测跨度，结果跨版本持久保留。设置页的高负载摘要改为紧凑双行展示、可独立展开、按影响时长排序，并明确区分历史系统压力与普通应用占用的表述边界。报表支持携带时间范围、应用、指标与事件上下文跳转，趋势抽屉补齐多维度图表（含磁盘读写）与全量应用排行；对采样估算、旧日汇总等数据局限做了显式标记，避免误读。
-- 面板展开与滚动动画改由系统原生图层驱动，过渡更连贯；底部操作区固定显示，不再随内容滚动。
-- 系统功耗读数优先采用实时采样：在部分机型上，菜单栏与面板的整机功耗此前可能滞后约 30–60 秒，现已即时跟随负载变化（直连版，#125）。
-- 显示器信息卡的图标与标题改为同行排列，展开内容不再额外缩进。
-
-#### 修复
-
-- 修复直连版在部分供电状态下，功率流在「交流供电」与「维持」之间横跳、直供时误报电池放电的问题。
+- 采样心跳与全局频率对齐，低频档位下不再每秒空转唤醒，后台更省电。
+- 统计的样本间隔上限随全局频率自适应，低频档位下不再把正常采样误判为中断而漏记。
+- 同步上游 v1.7.0：系统功耗优先采用实时采样，部分机型不再滞后 30–60 秒；修复直连版供电状态在「交流供电」与「维持」之间横跳、直供时误报电池放电的问题。
+- 同步上游 v1.7.0：数据统计口径与体验全面升级，报表支持上下文跳转与多维度趋势，面板动画改由系统原生图层驱动。
 
 ### English
 
+#### New Features
+
+- Added a dedicated "Refresh Rate" settings page: a single global level controls the background sampling interval for every monitored module, with levels of 1 / 2 / 3 / 6 / 10 / 15 seconds.
+- Removed the old power-only refresh interval setting; the global refresh rate now covers it.
+
 #### Improvements
 
-- System power now prefers the SMC PSTR reading over the firmware SystemLoad value, which only publishes once a minute.
-- Power refresh interval can be set to 1, 2, 5, or 10 seconds.
-- With the panel closed and statistics off, background sampling keeps only the modules the menu bar actually shows.
-- Menu bar items now keep only the system status-item inset, without an extra margin on either side.
-- Menu bar metric columns reserve at least three digits, so 3%, 23%, and 100% no longer shift neighboring icons.
-- Special thanks to GPT 6.1 Sol for its dedicated support — the app's long-standing performance has finally taken a major leap forward. Thanks to @srcenchen for the power-reading improvement. We recommend all users update.
-- Statistics have been overhauled for a consistent experience and unified units: capacity/traffic units, percentage baselines, and severity thresholds are now uniform across modules, fixing readings that mixed network speed with per-period totals. Heavy-app events now distinguish sustained usage, accumulated usage, and observation spans, and persist across versions. The high-load summary in Settings is now a compact two-line layout with independent expansion, ordered by impact duration, with clearer wording that separates historical system pressure from ordinary app usage. Reports can be opened with the time range, app, metric, and event context carried over; the trend drawer adds multi-dimension charts (including disk I/O) and a full app ranking. Data limitations such as sampling estimates and legacy daily summaries are now labeled explicitly to avoid misreading.
-- Panel expansion and scrolling are now driven by the system's native layer motion for smoother transitions; the bottom action bar stays fixed instead of scrolling with the content.
-- System power readings now use real-time sampling first: on some Macs, the menu bar and panel power previously lagged by about 30–60 seconds; they now follow load changes immediately (direct edition, #125).
-- In the display info card, the icon and title now share one row, and expanded content is no longer indented.
-
-#### Fixes
-
-- Fixed an issue in the direct edition where the power flow diagram flip-flopped between "AC power" and "maintaining" states, and could falsely report battery discharge while on direct power.
+- The sampling heartbeat now aligns with the global rate, so low-frequency levels no longer wake up every second and use less power in the background.
+- The statistics sample-gap threshold adapts to the global rate, so slow levels no longer misread normal samples as interruptions and drop seconds.
+- Synced upstream v1.7.0: system power now uses real-time sampling, so some Macs no longer lag by 30–60 seconds; fixed the direct edition flip-flopping between "AC power" and "maintaining" and falsely reporting battery discharge while on direct power.
+- Synced upstream v1.7.0: statistics have a consistent experience and unified units, reports support context jump and multi-dimension trends, and panel animation is driven by the system's native layer motion.

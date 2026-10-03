@@ -39,6 +39,8 @@ struct SettingsRootView: View {
         switch selection {
         case .general:
             GeneralSettingsView(settings: settings, store: store)
+        case .refresh:
+            RefreshSettingsView(settings: settings)
         case .module(let kind):
             ModuleSettingsView(kind: kind, settings: settings)
         case .displayModule:

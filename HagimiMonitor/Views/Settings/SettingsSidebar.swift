@@ -2,6 +2,8 @@ import SwiftUI
 
 enum SettingsRoute: Hashable {
     case general
+    /// 刷新频率:统一控制所有监控模块的后台采样间隔。
+    case refresh
     case module(MonitorKind)
     /// 显示器模块:Direct 为控制+信息,App Store 为纯信息展示(两渠道都有入口)。
     case displayModule
@@ -37,10 +39,13 @@ struct SettingsSidebar: View {
 
     var body: some View {
         List(selection: listSelection) {
-            // 常规:单条目,标题与条目文字(「常规」)重复,不单列分组标题。
+            // 常规与刷新频率:条目文字已自解释,不单列分组标题。
             Section {
                 Label(String(localized: "settings.sidebar.general"), systemImage: "gearshape")
                     .tag(SettingsRoute.general)
+
+                Label(String(localized: "settings.sidebar.refresh"), systemImage: "arrow.triangle.2.circlepath")
+                    .tag(SettingsRoute.refresh)
             }
 
             // 监控:各硬件模块与显示器。

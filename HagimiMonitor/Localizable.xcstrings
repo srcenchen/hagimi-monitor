@@ -7786,60 +7786,78 @@
         }
       }
     },
-    "settings.power.refresh-interval": {
+    "settings.refresh-interval": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Power refresh"
+            "value": "Refresh rate"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "功耗刷新"
+            "value": "刷新频率"
           }
         }
       }
     },
-    "settings.power.refresh-interval.subtitle": {
+    "settings.refresh-interval.group": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Background Refresh" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "后台刷新" } }
+      }
+    },
+    "settings.refresh-interval.subtitle": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "How often system power is read. The menu bar uses the same interval."
+            "value": "How often every monitored module is sampled. A lower frequency uses less power."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "系统功耗的采样间隔，状态栏与电源页共用"
+            "value": "所有监控模块的统一采样间隔，频率越低越省电"
           }
         }
       }
     },
-    "settings.power.refresh-interval.1": {
+    "settings.refresh-interval.1": {
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "1 s" } },
         "zh-Hans": { "stringUnit": { "state": "translated", "value": "1 秒" } }
       }
     },
-    "settings.power.refresh-interval.2": {
+    "settings.refresh-interval.2": {
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "2 s" } },
         "zh-Hans": { "stringUnit": { "state": "translated", "value": "2 秒" } }
       }
     },
-    "settings.power.refresh-interval.5": {
+    "settings.refresh-interval.3": {
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "5 s" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "5 秒" } }
+        "en": { "stringUnit": { "state": "translated", "value": "3 s" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "3 秒" } }
       }
     },
-    "settings.power.refresh-interval.10": {
+    "settings.refresh-interval.6": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "6 s" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "6 秒" } }
+      }
+    },
+    "settings.refresh-interval.10": {
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "10 s" } },
         "zh-Hans": { "stringUnit": { "state": "translated", "value": "10 秒" } }
+      }
+    },
+    "settings.refresh-interval.15": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "15 s" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "15 秒" } }
       }
     },
     "settings.battery.tab-no-metrics": {
@@ -8640,6 +8658,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "常规"
+          }
+        }
+      }
+    },
+    "settings.sidebar.refresh": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refresh Rate"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刷新频率"
           }
         }
       }

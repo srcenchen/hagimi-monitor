@@ -59,15 +59,15 @@ enum MonitorColorSchemePreference: String, CaseIterable, Identifiable {
     }
 }
 
-/// 内存卡片头部主显示指标:压力等级(默认)或使用率。
-/// 仅交换显示位置,不影响 severity / 负载环等由使用率驱动的逻辑。
-/// case 顺序即设置页分段选择器的展示顺序。
-/// 系统功耗采样间隔。直连版优先读 SMC `PSTR`，这个间隔决定状态栏和电源页多久换一次数。
-enum PowerRefreshInterval: Int, CaseIterable, Identifiable {
+/// 全局后台刷新频率:统一控制所有采样管线模块(CPU/GPU/内存/磁盘/网络/电池)
+/// 的采样间隔与采样心跳。值即秒数,档位取自常用节奏。
+enum GlobalRefreshInterval: Int, CaseIterable, Identifiable {
     case one = 1
     case two = 2
-    case five = 5
+    case three = 3
+    case six = 6
     case ten = 10
+    case fifteen = 15
 
     var id: Int { rawValue }
 
@@ -76,22 +76,29 @@ enum PowerRefreshInterval: Int, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .one:
-            String(localized: "settings.power.refresh-interval.1")
+            String(localized: "settings.refresh-interval.1")
         case .two:
-            String(localized: "settings.power.refresh-interval.2")
-        case .five:
-            String(localized: "settings.power.refresh-interval.5")
+            String(localized: "settings.refresh-interval.2")
+        case .three:
+            String(localized: "settings.refresh-interval.3")
+        case .six:
+            String(localized: "settings.refresh-interval.6")
         case .ten:
-            String(localized: "settings.power.refresh-interval.10")
+            String(localized: "settings.refresh-interval.10")
+        case .fifteen:
+            String(localized: "settings.refresh-interval.15")
         }
     }
 
-    static func validated(_ raw: Int?) -> PowerRefreshInterval {
-        guard let raw, let interval = PowerRefreshInterval(rawValue: raw) else { return .one }
+    static func validated(_ raw: Int?) -> GlobalRefreshInterval {
+        guard let raw, let interval = GlobalRefreshInterval(rawValue: raw) else { return .one }
         return interval
     }
 }
 
+/// 内存卡片头部主显示指标:压力等级(默认)或使用率。
+/// 仅交换显示位置,不影响 severity / 负载环等由使用率驱动的逻辑。
+/// case 顺序即设置页分段选择器的展示顺序。
 enum MemoryPrimaryMetricPreference: String, CaseIterable, Identifiable {
     case pressure
     case usage
@@ -165,8 +172,8 @@ final class MonitorSettings: ObservableObject {
     @Published var menuBarDisplayMode: MenuBarDisplayMode = .ring
     @Published private(set) var menuBarMetricKinds: [MenuBarMetricKind] = MenuBarMetricKind.defaultSelection
     @Published var menuBarMetricLayoutStyle: MenuBarMetricLayoutStyle = .icon
-    /// 系统功耗刷新间隔。默认 1 秒：`PSTR` 是单次 SMC 读取，状态栏要跟手。
-    @Published var powerRefreshInterval: PowerRefreshInterval = .one
+    /// 全局后台刷新间隔。默认 1 秒：状态栏与面板要跟手。
+    @Published var globalRefreshInterval: GlobalRefreshInterval = .one
     @Published var showBuiltInDisplays: Bool = true
     @Published var displayModuleVisible: Bool = false
     @Published var displayControlsExpandedByDefault: Bool = false
@@ -238,6 +245,21 @@ final class MonitorSettings: ObservableObject {
     private var isUpdatingLaunchAtLogin = false
     private var cancellables = Set<AnyCancellable>()
 
+    /// 读取全局刷新间隔。新键缺失时从旧「功耗刷新」键迁移:旧 5 秒档并入
+    /// 新 6 秒档,其余档位原样保留,避免升级后静默回落到默认值。
+    private static func migratedRefreshInterval(_ defaults: UserDefaults) -> GlobalRefreshInterval {
+        if let raw = defaults.object(forKey: Keys.globalRefreshInterval) as? Int {
+            return GlobalRefreshInterval.validated(raw)
+        }
+        switch defaults.object(forKey: Keys.legacyPowerRefreshInterval) as? Int {
+        case 1: return .one
+        case 2: return .two
+        case 5: return .six
+        case 10: return .ten
+        default: return .one
+        }
+    }
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
 
@@ -262,7 +284,7 @@ final class MonitorSettings: ObservableObject {
         menuBarMetricKinds = MonitorSettings.validatedMenuBarMetrics(
             defaults.array(forKey: Keys.menuBarMetricKinds) as? [String]
         )
-        powerRefreshInterval = PowerRefreshInterval.validated(defaults.object(forKey: Keys.powerRefreshInterval) as? Int)
+        globalRefreshInterval = MonitorSettings.migratedRefreshInterval(defaults)
 
         showBuiltInDisplays = defaults.object(forKey: Keys.showBuiltInDisplays) as? Bool ?? true
         // 默认值分渠道:Direct 的控制区是 Beta 选择性能力,默认关;
@@ -928,10 +950,10 @@ final class MonitorSettings: ObservableObject {
             }
             .store(in: &cancellables)
 
-        $powerRefreshInterval
+        $globalRefreshInterval
             .dropFirst()
             .sink { [weak self] newValue in
-                self?.persist(newValue.rawValue, forKey: Keys.powerRefreshInterval)
+                self?.persist(newValue.rawValue, forKey: Keys.globalRefreshInterval)
             }
             .store(in: &cancellables)
 
@@ -1261,7 +1283,9 @@ private enum Keys {
     static let menuBarDisplayMode = "settings.menuBar.displayMode"
     static let menuBarMetricKinds = "settings.menuBar.metricKinds"
     static let menuBarMetricLayoutStyle = "settings.menuBar.metricLayoutStyle"
-    static let powerRefreshInterval = "settings.power.refreshInterval"
+    static let globalRefreshInterval = "settings.globalRefreshInterval"
+    /// 遗留键名:仅用于读取迁移,不写入。
+    static let legacyPowerRefreshInterval = "settings.power.refreshInterval"
     /// 遗留键名:仅用于读取迁移,不写入。
     static let legacyMenuBarMetricPrefixStyle = "settings.menuBar.metricPrefixStyle"
     static let defaultExpandedKinds = "settings.panel.defaultExpandedKinds"
